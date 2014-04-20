@@ -76,6 +76,8 @@ struct writeRequest
  **********************************/
 pthread_t connThread;
 pthread_t heartbeatThread;
+pthread_t readRequestThread;
+pthread_t writeRequestThread;
 
 pthread_mutex_t dataLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileLock = PTHREAD_MUTEX_INITIALIZER;
@@ -119,6 +121,6 @@ std::vector<serverPkt>::iterator storeEndIndex(storageLocation storeType);
 int sendMessage(int sockDesc, const char* msg, int msgLen);
 std::vector<serverPkt>::iterator findFile(string fileName, storageLocation storeType);
 void writeToFile(storageLocation storeType, struct serverPkt* sPkt);
-storageLocation storeType(int hNum);
-std::vector<writeRequest>::iterator findRequestObj(string fileName);
+storageLocation findStoreType(int hNum);
+std::vector<writeRequest>::iterator findWriteRequest(string fileName);
 #endif

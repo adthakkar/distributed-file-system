@@ -26,6 +26,12 @@ int main(int argc, char** argv)
 	pthread_create(&heartbeatThread, 0, issueHeartbeat, NULL);
 	pthread_detach(heartbeatThread);
 
+	pthread_create(&readRequestThread, 0, processReadRequest, NULL);
+	pthread_detach(readRequestThread);
+	
+	pthread_create(&writeRequestThread, 0, processWriteRequest, NULL);
+	pthread_detach(writeRequestThread);
+	
 	while(1)
 	{
 		conn = (connection*)malloc(sizeof(connection));
@@ -282,7 +288,7 @@ void* processConnection(void* ptr)
 						break;
 					case SERVER_ACK:
 						LOCK_MUTEX(dataLock);
-						wqIt = findWriteObj(sPkt.fileName);
+						wqIt = findWriteRequest(sPkt.fileName);
 						if(wqIt != writeQueue.end())
 						{
 							wqIt->numAck += 1;
@@ -291,7 +297,7 @@ void* processConnection(void* ptr)
 						break;
 					case SERVER_REQ_COMMIT:
 						LOCK_MUTEX(dataLock);
-						writeToFile(storeType(sPkt.hashNum), &sPkt);
+						writeToFile(findStoreType(sPkt.hashNum), &sPkt);
 						UNLOCK_MUTEX(dataLock);
 						break;
 					case SERVER_REQ_RECOVERY:
@@ -542,7 +548,7 @@ void* processWriteRequest(void* ptr)
 								sendMessage(servSockDesc[myId+1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 								sendMessage(servSockDesc[myId+2], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 								
-								writeToFile(storeType(it->hashNum), &sPkt);
+								writeToFile(findStoreType(it->hashNum), &sPkt);
 								
 								cPkt.msgType = CLIENT_SERV_RESP_SUCCESS;
 								cPkt.fileName = it->fileName;
@@ -647,7 +653,7 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 			break;
 	}
 	
-	directory.insert(std::pair<string,storageLocation>(sPkt->fileName, storeType(sPkt->hNum)));
+	directory.insert(std::pair<string,storageLocation>(sPkt->fileName, storeType));
 	ss<<sPkt->fileName<<"\t"<<sPkt->version<<"\t"<<sPkt->data<<"\n";
 	if(oFile.is_open())
 	{
@@ -657,7 +663,7 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 
 }
 
-storageLocation storeType(int hNum)
+storageLocation findStoreType(int hNum)
 {
 	if(hNum == myId)
 		return STORE_HASH;
@@ -669,14 +675,18 @@ storageLocation storeType(int hNum)
 	return STORE_NONE;
 }
 
-std::vector<writeRequest>::iterator findRequestObj(string fileName)
+std::vector<writeRequest>::iterator findWriteRequest(string fileName)
 {
-	std::vector<writeRequest>::iterator		retIt;
+	std::vector<writeRequest>::iterator		retIt = writeQueue.end();
+	std::vector<writeRequest>::iterator		it;
 
-	for(ret = writeQueue.begin(); ret != writeQueue.end(); ++ret)
+	for(it = writeQueue.begin(); it != writeQueue.end(); ++it)
 	{
-		if(ret->fileName = fileName)
+		if(it->fileName == fileName)
+		{
+			retIt = it;
 			break;
+		}
 	}
 	return retIt;
 }

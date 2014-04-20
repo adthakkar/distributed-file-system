@@ -2,8 +2,10 @@
 #define UTIL_H
 
 #include<iostream>
-
-using namespace std;
+#include<sstream>
+#include<cstring>
+#include<stdlib.h>
+#include"net.h"
 
 #define MAX_FILE_NAME_LENGTH	24
 #define MAX_DATA_SIZE		256
@@ -14,26 +16,35 @@ using namespace std;
  **********************************/
 typedef enum
 {
+	CLIENT_SERV_NONE,
 	CLIENT_REQ_WRITE,
 	CLIENT_REQ_READ,
 	CLIENT_REQ_ABORT,
-	SERV_CLIENT_RESP_SUCCESS,
-	SERV_CLIENT_RESP_FAILURE
-}clientMsgType;
+	CLIENT_SERV_RESP_SUCCESS,
+	CLIENT_SERV_RESP_FAILURE,
+	SERVER_REQ_LOCK,
+	SERVER_REQ_COMMIT,
+	SERVER_REQ_RECOVERY,
+	SERVER_RESP_RECOVERY,
+	SERVER_ACK,
+	SERVER_HELLO,
+	SERVER_STARTUP
+}clientServMsgType;
 
 /**********************************
  * STRUCTURE Declaration
  **********************************/
 struct clientPkt
 {
-	clientMsgType		msgType;
-	char			fileName[MAX_FILE_NAME_LENGTH+1];
-	char			data[MAX_DATA_SIZE+1];
+	clientServMsgType	msgType;
+	std::string		fileName;
+	char			data[MAX_DATA_SIZE];
 };
 
 /**********************************
  * FUNCTION Declaration
  **********************************/
-string packetToMessage(struct clientPkt* cPkt);
-clientPkt clientMsgToPacket(string str);
+std::string packetToMessage(struct clientPkt* cPkt);
+clientPkt clientMsgToPacket(std::string str);
+int hashFileName(string str);
 #endif

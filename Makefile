@@ -1,10 +1,13 @@
 all:server
 
-server:server.o net.o logger.o
-	g++ server.o net.o logger.o -o server -lm -lpthread 
+server:server.o net.o util.o logger.o
+	g++ server.o net.o util.o logger.o -o server -lm -lpthread 
 
 server.o:server.cpp
 	g++ -c server.cpp server.h net.h logger.h util.h
+
+util.o:util.cpp
+	g++ -c util.cpp util.h
 
 net.o:net.cpp
 	g++ -c net.cpp net.h logger.h

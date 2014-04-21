@@ -5,11 +5,17 @@
 #include<sstream>
 #include<cstring>
 #include<stdlib.h>
+#include<time.h>
+#include<sys/time.h>
 #include"net.h"
 
 #define MAX_FILE_NAME_LENGTH	24
 #define MAX_DATA_SIZE		256
 #define MAX_BUFFER_SIZE		312
+
+#define HASH_PRIME_SEED_A	54059
+#define HASH_PRIME_SEED_B	76963
+
 
 /**********************************
  * ENUM Declaration
@@ -47,4 +53,5 @@ struct clientPkt
 std::string packetToMessage(struct clientPkt* cPkt);
 clientPkt clientMsgToPacket(std::string str);
 int hashFileName(string str);
+long int getCurTimeMilliSec();
 #endif

@@ -39,13 +39,19 @@ struct clientPkt clientMsgToPacket(string sMsg)
 
 int hashFileName(string str)
 {
-	int seed = 131;
-	unsigned long hash = 0;
+	unsigned hash = 31;
 
-	for(int i=0; i<str.length(); i++)
+	for(int i = 0; i<str.length(); i++)
 	{
-		hash = (hash*seed)+str[i];
+		hash = (hash * HASH_PRIME_SEED_A) ^ (str[i] * HASH_PRIME_SEED_B);
 	}
 	return hash % MAX_NODES;
+}
+
+long int getCurTimeMilliSec()
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec*1000 + tv.tv_usec/1000);
 }
 

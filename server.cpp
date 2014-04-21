@@ -123,6 +123,7 @@ void* processConnection(void* ptr)
 	struct writeRequest				wReq;
 	int						noBytesRead;
 	int						hNum;
+	int						id;
 	string 						sendMsg;
 	char*						buffer;
 	char*						msgTypeToken;
@@ -208,12 +209,8 @@ void* processConnection(void* ptr)
 				{
 					cPkt.msgType = CLIENT_SERV_RESP_FAILURE;
 					strncpy(cPkt.data, "Invalid File Name - validateHash() FAILED\0", MAX_DATA_SIZE);
-
-					sendMsg = packetToMessage(&cPkt);
-					ss<<"processConnection() - "<<sendMsg<<" message length="<<strlen(sendMsg.c_str())+1<<"\n";
-					logToFile(ERROR, ss.str());
-
-					sendMessage(conn->sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+					
+					sendToClient(conn->sockDesc, &cPkt);
 				}
 				else
 				{
@@ -228,27 +225,35 @@ void* processConnection(void* ptr)
 							UNLOCK_MUTEX(dataLock);
 							break;
 						case CLIENT_REQ_WRITE:
-							wReq.hashNum = hNum;
-							wReq.fileName = cPkt.fileName;
-							wReq.conn = conn;
-							wReq.lastMsg = CLIENT_SERV_NONE;
-							wReq.serverRespTimer = getCurTimeMilliSec();
-							wReq.numAck = 0;
-							wReq.lockEnable = false;
-							strncpy(wReq.data, cPkt.data, MAX_DATA_SIZE);
 							LOCK_MUTEX(dataLock);
-							mIt = directory.find(cPkt.fileName);
-							if(mIt != directory.end())
+							if(hNum != myId && activeConnections[hNum])
 							{
-								servIt = findFile(cPkt.fileName, mIt->second);
-					
-								if(servIt != storeEndIndex(mIt->second))
-								{
-									servIt->lock = true;
-									wReq.lockEnable = true;
-								}
+								cPkt.msgType = CLIENT_SERV_RESP_FAILURE;
+								strncpy(cPkt.data, "Send request to leader \0", MAX_DATA_SIZE);
+								
+								sendToClient(conn->sockDesc, &cPkt);
 							}
-							writeQueue.push_back(wReq);
+							else
+							{
+								wReq.hashNum = hNum;
+								wReq.fileName = cPkt.fileName;
+								wReq.conn = conn;
+								wReq.lastMsg = CLIENT_SERV_NONE;
+								wReq.leaderId = myId;
+								strncpy(wReq.data, cPkt.data, MAX_DATA_SIZE);
+								mIt = directory.find(cPkt.fileName);
+								if(mIt != directory.end())
+								{
+									servIt = findFile(cPkt.fileName, mIt->second);
+					
+									if(servIt != storeEndIndex(mIt->second))
+									{
+										servIt->lock = true;
+										wReq.lockEnable = true;
+									}
+								}
+								writeQueue.push_back(wReq);
+							}
 							UNLOCK_MUTEX(dataLock);
 							break;
 						case CLIENT_REQ_ABORT:
@@ -266,24 +271,40 @@ void* processConnection(void* ptr)
 				{
 					case SERVER_REQ_LOCK:
 						LOCK_MUTEX(dataLock);
-						mIt = directory.find(sPkt.fileName);
-						if(mIt != directory.end())
+						if(validateHash(sPkt.hashNum))
 						{
-							servIt = findFile(sPkt.fileName, mIt->second);
-					
-							if(servIt != storeEndIndex(mIt->second))
+							wReq.hashNum = hNum;
+							wReq.fileName = cPkt.fileName;
+							wReq.conn = conn;
+							wReq.leaderId = -1;
+							wReq.lastMsg = SERVER_REQ_LOCK;
+							wReq.serverRespTimer = getCurTimeMilliSec();
+							strncpy(wReq.data, sPkt.data, MAX_DATA_SIZE);
+
+							mIt = directory.find(sPkt.fileName);
+							if(mIt != directory.end())
 							{
-								servIt->lock = true;
+								servIt = findFile(sPkt.fileName, mIt->second);
+					
+								if(servIt != storeEndIndex(mIt->second))
+								{
+									servIt->lock = true;
+									wReq.lockEnable = true;
+								}
 							}
+							
+							writeQueue.push_back(wReq);
+							id = sPkt.serverId;
+	
+							sPkt.serverId = myId;
+							sPkt.msgType = SERVER_ACK;
+
+							sendMsg = packetToMessage(&sPkt);
+							ss<<"processConnection() - SERVER_ACK "<<sendMsg<<" message length="<<strlen(sendMsg.c_str())+1<<"\n";
+							logToFile(DEBUG, ss.str());
+
+							sendMessage(servSockDesc[sPkt.serverId], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 						}
-						
-						sPkt.msgType = SERVER_ACK;
-
-						sendMsg = packetToMessage(&sPkt);
-						ss<<"processConnection() - SERVER_ACK "<<sendMsg<<" message length="<<strlen(sendMsg.c_str())+1<<"\n";
-						logToFile(DEBUG, ss.str());
-
-						sendMessage(servSockDesc[sPkt.serverId], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 						UNLOCK_MUTEX(dataLock);
 						break;
 					case SERVER_ACK:
@@ -297,7 +318,15 @@ void* processConnection(void* ptr)
 						break;
 					case SERVER_REQ_COMMIT:
 						LOCK_MUTEX(dataLock);
-						writeToFile(findStoreType(sPkt.hashNum), &sPkt);
+						if(validateHash(sPkt.hashNum))
+						{
+							wqIt = findWriteRequest(sPkt.fileName);
+						
+							if(wqIt != writeQueue.end())
+								writeQueue.erase(wqIt);
+
+							writeToFile(findStoreType(sPkt.hashNum), &sPkt);
+						}
 						UNLOCK_MUTEX(dataLock);
 						break;
 					case SERVER_REQ_RECOVERY:
@@ -459,12 +488,7 @@ void* processReadRequest(void* ptr)
 						readQueue.erase(it);
 					}
 				}
-
-				sendMsg = packetToMessage(&cPkt);
-				ss<<"processReadRequest() - "<<sendMsg<<" message length="<<strlen(sendMsg.c_str())+1<<"\n";
-				logToFile(DEBUG, ss.str());
-						
-				sendMessage(it->conn->sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+				sendToClient(it->conn->sockDesc, &cPkt);
 			}
 		}
 		UNLOCK_MUTEX(dataLock);
@@ -500,113 +524,164 @@ void* processWriteRequest(void* ptr)
 						sPkt.fileName = it->fileName;
 						strncpy(sPkt.data, it->data, MAX_DATA_SIZE);
 						
-						if(activeConnections[myId+1] || activeConnections[myId+2])
+						if(it->leaderId == myId)
 						{
-							sendMsg = packetToMessage(&sPkt);
-
-							ss.str(std::string());
-							ss<<"processWriteRequest() - SEVER_REQ_LOCK msg sent "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
-							logToFile(DEBUG, ss.str());
-
-							sendMessage(servSockDesc[myId+1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
-							sendMessage(servSockDesc[myId+2], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
-
-							it->numAck += 1;
-							it->lastMsg = SERVER_REQ_LOCK;
-							it->serverRespTimer = getCurTimeMilliSec();
-							++it;
-						}
-						else
-						{
-							errToClient = true;
-							strncpy(cPkt.data, "Consensus FAILED, unable to write object \0", MAX_DATA_SIZE);
-						}
-						break;
-					case SERVER_REQ_LOCK:
-						curTime = getCurTimeMilliSec();
-						if((it->numAck < 2) && ((curTime - it->serverRespTimer) > SERVER_RESP_TIME_LIMIT))
-						{
-							errToClient = true;
-							strncpy(cPkt.data,"Replica response TIMEOUT, unable to write object \0", MAX_DATA_SIZE);
-						}
-						else if(it->numAck >= 2)
-						{
-							sPkt.msgType = SERVER_REQ_COMMIT;
-							sPkt.hashNum = it->hashNum;
-							sPkt.serverId = myId;
-							sPkt.fileName = it->fileName;
-							strncpy(sPkt.data, it->data, MAX_DATA_SIZE);
-							
-							if(activeConnections[myId+1] || activeConnections[myId+2])
+							if(sendToReplica(it->leaderId, it->hashNum, &sPkt))
 							{
-								sendMsg = packetToMessage(&sPkt);
-
-								ss.str(std::string());
-								ss<<"processWriteRequest() - SEVER_REQ_COMMIT msg sent "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
-								logToFile(DEBUG, ss.str());
-
-								sendMessage(servSockDesc[myId+1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
-								sendMessage(servSockDesc[myId+2], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
-								
-								writeToFile(findStoreType(it->hashNum), &sPkt);
-								
-								cPkt.msgType = CLIENT_SERV_RESP_SUCCESS;
-								cPkt.fileName = it->fileName;
-								strncpy(cPkt.data, "Data SUCCESSFULLY written to the file \0", MAX_DATA_SIZE);
-								
-								sendMsg = packetToMessage(&cPkt);
-								ss.str(std::string());
-								ss<<"processWriteRequest() - CLIENT_SERV_RESP_SUCCESS msg sent "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
-								logToFile(DEBUG, ss.str().c_str());
-
-								sendMessage(it->conn->sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1);
-								writeQueue.erase(it);
+								it->numAck += 1;
+								it->lastMsg = SERVER_REQ_LOCK;
+								it->serverRespTimer = getCurTimeMilliSec();
+								++it;
 							}
 							else
 							{
 								errToClient = true;
-								strncpy(cPkt.data,"Replicas NOT AVAILABLE, unable to write object \0",MAX_DATA_SIZE);
+								strncpy(cPkt.data, "Consensus FAILED, unable to write object \0", MAX_DATA_SIZE);
+							}	
+						}
+						break;
+					case SERVER_REQ_LOCK:
+						curTime = getCurTimeMilliSec();
+						if(it->leaderId == myId)
+						{
+							if((it->numAck < 2) && ((curTime - it->serverRespTimer) > SERVER_RESP_TIME_LIMIT))
+							{	
+								errToClient = true;
+								strncpy(cPkt.data,"Replica response TIMEOUT, unable to write object \0", MAX_DATA_SIZE);
+							}
+							else if(it->numAck >= 2)
+							{
+								sPkt.msgType = SERVER_REQ_COMMIT;
+								sPkt.hashNum = it->hashNum;
+								sPkt.serverId = myId;
+								sPkt.fileName = it->fileName;
+								strncpy(sPkt.data, it->data, MAX_DATA_SIZE);
+							
+								if(sendToReplica(it->leaderId, it->hashNum, &sPkt))
+								{
+									writeToFile(findStoreType(it->hashNum), &sPkt);
+								
+									cPkt.msgType = CLIENT_SERV_RESP_SUCCESS;
+									cPkt.fileName = it->fileName;
+									strncpy(cPkt.data, "Data SUCCESSFULLY written to the file \0", MAX_DATA_SIZE);
+									sendToClient(it->conn->sockDesc, &cPkt);
+
+									writeQueue.erase(it);
+								}
+								else
+								{
+									errToClient = true;
+									strncpy(cPkt.data,"Replicas NOT AVAILABLE, unable to write object \0",MAX_DATA_SIZE);
+								}
+							}
+							else
+							{
+								++it;
 							}
 						}
-						else
+						else if(it->leaderId != myId)
 						{
-							++it;
+							if((curTime - it->serverRespTimer) > SERVER_RESP_TIME_LIMIT)
+							{
+								if(it->lockEnable)
+								{
+									mIt = directory.find(it->fileName);
+									if(mIt != directory.end())
+									{
+										servIt = findFile(it->fileName, mIt->second);
+						
+										if(servIt != storeEndIndex(mIt->second))
+											servIt->lock = false;
+										else
+											directory.erase(mIt);
+									}
+								}
+								writeQueue.erase(it);
+							}
 						}
 						break;
 					default:
 						break;
 				}
 
-				if(errToClient && it->lockEnable)
-				{	
-					mIt = directory.find(it->fileName);
-					if(mIt != directory.end())
-					{
-						servIt = findFile(it->fileName, mIt->second);
-					
-						if(servIt != storeEndIndex(mIt->second))
-							servIt->lock = false;
-						else
-							directory.erase(mIt);
-					}
-				}
 				if(errToClient)
-				{
+				{	
+					if(it->lockEnable)
+					{
+						mIt = directory.find(it->fileName);
+						if(mIt != directory.end())
+						{
+							servIt = findFile(it->fileName, mIt->second);
+					
+							if(servIt != storeEndIndex(mIt->second))
+								servIt->lock = false;
+							else
+								directory.erase(mIt);
+						}
+					}
 					cPkt.msgType = CLIENT_SERV_RESP_FAILURE;
 					cPkt.fileName = it->fileName;
-					
-					sendMsg = packetToMessage(&cPkt);
-					ss.str(std::string());
-					ss<<"processWriteRequest() - CLIENT_SERV_RESP_FAILURE msg sent "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
-					logToFile(DEBUG, ss.str());
-
-					sendMessage(it->conn->sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+					sendToClient(it->conn->sockDesc, &cPkt);
 					writeQueue.erase(it);
 				}
 			}
 		}
 		UNLOCK_MUTEX(dataLock);
 	}
+}
+
+int sendToReplica(int leader, int hash, serverPkt* sPkt)
+{
+	std::stringstream			ss;
+	string					sendMsg;
+	int					ret = -1;
+	int					replica1;
+	int					replica2;
+
+	if(leader == myId)
+	{
+		sendMsg = packetToMessage(sPkt);
+
+		ss.str(std::string());
+		ss<<"sendToReplica() attempting to send message -  "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
+		logToFile(DEBUG, ss.str());
+		
+		replica1 = (myId + 1) % MAX_NODES;
+		replica2 = (myId + 2) % MAX_NODES;
+		if((hash == leader) &&  ((activeConnections[replica1])||(activeConnections[replica2])))
+		{
+			sendMessage(servSockDesc[replica1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+			sendMessage(servSockDesc[replica2], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+			ret = 1;
+		}
+		else if((hash+1 == leader) && (activeConnections[replica1]))
+		{
+			sendMessage(servSockDesc[replica1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+			ret = 1;
+		}
+		else
+		{			
+			ss.str(std::string());
+			ss<<"sendToReplica() FAILED to send message -  "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
+			logToFile(DEBUG, ss.str());
+		}
+	}
+
+	return ret;
+	
+}
+
+void sendToClient(int sockDesc, clientPkt* cPkt)
+{
+	std::stringstream			ss;
+	string					sendMsg;
+	
+	sendMsg = packetToMessage(cPkt);
+	ss.str(std::string());
+	ss<<"sendToClient() sending message - "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
+	logToFile(DEBUG, ss.str());
+
+	sendMessage(sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 }
 
 void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
@@ -858,13 +933,6 @@ struct helloPkt helloMsgToPacket(string hMsg)
 	hPkt.storeSizeHashMinusTwo = atoi(toks[4].c_str());
 
 	return hPkt;
-}
-
-long int getCurTimeMilliSec()
-{
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	return (tv.tv_sec*1000 + tv.tv_usec/1000);
 }
 
 void logToFile(logType type, string str)

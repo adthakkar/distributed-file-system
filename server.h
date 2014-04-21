@@ -5,8 +5,6 @@
 #include<pthread.h>
 #include<map>
 #include<vector>
-#include<time.h>
-#include<sys/time.h>
 #include<errno.h>
 #include"logger.h"
 #include"net.h"
@@ -61,14 +59,15 @@ struct readRequest
 
 struct writeRequest
 {
+	clientServMsgType	lastMsg;
 	int 			hashNum;
+	int			leaderId;
 	bool			lockEnable;
-	connection*		conn;
 	string			fileName;
 	long int		serverRespTimer;
 	int			numAck;
-	clientServMsgType	lastMsg;
 	char			data[MAX_DATA_SIZE];
+	connection*		conn;
 };
 
 /**********************************
@@ -114,7 +113,6 @@ string packetToMessage(struct serverPkt* servPkt);
 string packetToMessage(struct helloPkt* hPkt);
 struct serverPkt servMsgToPacket(string sMsg);
 struct helloPkt helloMsgToPacket(string hMsg);
-long int getCurTimeMilliSec();
 void logToFile(logType type, string str);
 int validateHash(int hashNum);
 std::vector<serverPkt>::iterator storeEndIndex(storageLocation storeType);
@@ -123,4 +121,6 @@ std::vector<serverPkt>::iterator findFile(string fileName, storageLocation store
 void writeToFile(storageLocation storeType, struct serverPkt* sPkt);
 storageLocation findStoreType(int hNum);
 std::vector<writeRequest>::iterator findWriteRequest(string fileName);
+int sendToReplica(int leader, int hash, serverPkt* sPkt);
+void sendToClient(int sockDesc, clientPkt* cPkt);
 #endif

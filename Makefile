@@ -1,4 +1,4 @@
-all:server client
+all:server client                        
 
 server:server.o net.o util.o logger.o
 	g++ server.o net.o util.o logger.o -o server -lm -lpthread 

@@ -15,8 +15,9 @@ int main(int argc, char** argv)
 	if(ret < 0)
 	{
 		log(ERROR, "sendRequestToServer() FAILED \n");
+		return -1;
 	}
-
+	close(ret);
 	return 0;
 }
 
@@ -56,12 +57,12 @@ void getUserInput(clientPkt* cPkt)
 	else
 		cPkt->msgType = CLIENT_REQ_WRITE;
 
-	cout<<"\n Enter file name:";
+	cout<<"Enter file name:";
 	cin>>cPkt->fileName;
 
 	if(cPkt->msgType == CLIENT_REQ_WRITE)
 	{
-		cout<<"\n Enter data to be written:";
+		cout<<"Enter data to be written:";
 		cin>>input;
 		strncpy(cPkt->data, input.c_str(), MAX_DATA_SIZE -1);
 		cPkt->data[MAX_DATA_SIZE-1] = '\0';
@@ -96,14 +97,14 @@ int sendRequestToServer(struct clientPkt* cPkt)
 			return -1;
 
 	
-		if(-1 < connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+		if(-1 == connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
 		{
 			ss.str(std::string());
 			ss<<"sendRequestToServer() - Cannot connect to hash server with Id "<<serverToConn<<"\n";
 			log(ERROR, ss.str());
 			
 			serverToConn = (hash + 1) % 7;
-			if(-1 < connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+			if(-1 ==  connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
 			{
 				ss<<"sendRequestToServer() - Cannot connect to hash+1 server with Id "<<serverToConn<<"\n";
 				log(ERROR, ss.str());
@@ -113,21 +114,29 @@ int sendRequestToServer(struct clientPkt* cPkt)
 			ss<<"sendRequestToServer() - connected to hash+1 server with Id "<<serverToConn<<"\n";
 			log(DEBUG, ss.str());
 
-		}	
-		ss.str(std::string());
-		ss<<"sendRequestToServer() - connected to hash server with Id "<<serverToConn<<"\n";
-		log(DEBUG, ss.str());
-		
+		}
+		else
+		{
+			ss.str(std::string());
+			ss<<"sendRequestToServer() - connected to hash server with Id "<<serverToConn<<"\n";
+			log(DEBUG, ss.str());
+		}
+
 		sendMsg = packetToMessage(cPkt);
 		ss.str(std::string());
 		ss<<"sendRequestToServer() sending message - "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
 		log(DEBUG, ss.str());
 		
 		timer = getCurTimeMilliSec();
+		ss.str(std::string());
+		ss<<"Send Timer is: "<<timer<<"\n";
+		log(DEBUG,ss.str());
+
 		send(sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1, 0);
 
 		while(1)
 		{
+			log(DEBUG, "in while \n");
 			ss.str(std::string());
 			if((getCurTimeMilliSec() - timer) > CLIENT_RESP_TIME_LIMIT)
 			{
@@ -141,7 +150,7 @@ int sendRequestToServer(struct clientPkt* cPkt)
 			ss.str(std::string());
 			buffer = new char[MAX_BUFFER_SIZE];
 			noBytesRead = recv(sockDesc, buffer, MAX_BUFFER_SIZE, 0);
-
+			/*
 			if(noBytesRead == 0)
 			{
 				ss<<"sendRequestToServer() breaking out EINTR = "<<EINTR<<"\n";
@@ -150,11 +159,13 @@ int sendRequestToServer(struct clientPkt* cPkt)
 				sockDesc = -1;
 				break;
 			}	
-
+			*/
 			if(noBytesRead>0)
 			{
 				buffer[noBytesRead] = '\0';
 				ss<<"sendRequestToServer() response received from server - "<<buffer<<"\n";	
+				log(DEBUG, ss.str());
+
 				clientRet = clientMsgToPacket(buffer);
 				cPkt->msgType = clientRet.msgType;
 				cPkt->fileName = clientRet.fileName;

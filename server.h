@@ -85,7 +85,7 @@ int servSockDesc[MAX_NODES];
 int myId;
 long int liveNodesTimer[MAX_NODES];
 
-string debugFileName;
+string debugFileName, heartbeatLog;
 string logHash, logHashMinusOne, logHashMinusTwo;
 
 bool activeConnections[MAX_NODES];
@@ -113,14 +113,15 @@ string packetToMessage(struct serverPkt* servPkt);
 string packetToMessage(struct helloPkt* hPkt);
 struct serverPkt servMsgToPacket(string sMsg);
 struct helloPkt helloMsgToPacket(string hMsg);
-void logToFile(logType type, string str);
-int validateHash(int hashNum);
+void logToFile(logType type, string str, string fileName);
+bool validateHash(int hashNum);
 std::vector<serverPkt>::iterator storeEndIndex(storageLocation storeType);
 int sendMessage(int sockDesc, const char* msg, int msgLen);
 std::vector<serverPkt>::iterator findFile(string fileName, storageLocation storeType);
 void writeToFile(storageLocation storeType, struct serverPkt* sPkt);
 storageLocation findStoreType(int hNum);
 std::vector<writeRequest>::iterator findWriteRequest(string fileName);
-int sendToReplica(int leader, int hash, serverPkt* sPkt);
+bool sendToReplica(int leader, int hash, serverPkt* sPkt);
 void sendToClient(int sockDesc, clientPkt* cPkt);
+void searchAndLock(string fileName, bool lockValue);
 #endif

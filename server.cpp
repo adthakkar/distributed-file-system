@@ -147,7 +147,7 @@ void* processConnection(void* ptr)
 		ss.str(std::string());
 		buffer = new char[MAX_BUFFER_SIZE];
 		noBytesRead = recv(conn->sockDesc, buffer, MAX_BUFFER_SIZE, 0);
-
+//cout<<"received something \n";
 		if(noBytesRead == 0)
 		{
 			ss.str(std::string());
@@ -284,7 +284,7 @@ void* processConnection(void* ptr)
 
 							searchAndLock(sPkt.fileName, true);
 							writeQueue.push_back(wReq);
-							
+								
 							id = sPkt.serverId;
 							sPkt.serverId = myId;
 							sPkt.msgType = SERVER_ACK;
@@ -294,10 +294,6 @@ void* processConnection(void* ptr)
 							ss<<"processConnection() - SERVER_ACK "<<sendMsg<<" message length="<<strlen(sendMsg.c_str())+1<<"\n";
 							logToFile(DEBUG, ss.str(), debugFileName);
 							
-							ss.str(std::string());
-							ss<<"SERVER_REQ_LOCK: serverId="<<id<<"\n";
-							cout<<ss.str();
-
 							sendMessage(servSockDesc[id], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 						}
 						UNLOCK_MUTEX(dataLock);
@@ -315,6 +311,7 @@ void* processConnection(void* ptr)
 						LOCK_MUTEX(dataLock);
 						if(validateHash(sPkt.hashNum))
 						{
+						cout<<"SERVER_REQ_COMMIT - validated hash \n";
 							writeToFile(findStoreType(sPkt.hashNum), &sPkt);
 							wqIt = findWriteRequest(sPkt.fileName);
 						
@@ -685,9 +682,12 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 				
 	if(servIt != storeEndIndex(storeType))
 	{
-		servIt->version += 1;
+		servIt->version = servIt->version + 1;
 		strncpy(servIt->data,sPkt->data,MAX_DATA_SIZE);
 		servIt->lock = false;
+		
+		ss<<myId<<"\t"<<servIt->fileName<<"\t"<<servIt->version<<"\t"<<servIt->data<<"\n";
+		log(DEBUG, "writeToFile() "+ss.str());
 	}
 	else
 	{
@@ -695,6 +695,9 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 		pkt->msgType = CLIENT_SERV_NONE;
 		pkt->version = 1;
 		pkt->lock = false;
+		
+		ss<<myId<<"\t"<<pkt->fileName<<"\t"<<pkt->version<<"\t"<<pkt->data<<"\n";
+		log(DEBUG, "writeToFile() "+ss.str());
 	}
 
 	switch(storeType)
@@ -719,9 +722,6 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 	}
 	
 	directory.insert(std::pair<string,storageLocation>(sPkt->fileName, storeType));
-	ss<<myId<<"\t"<<sPkt->fileName<<"\t"<<sPkt->version<<"\t"<<sPkt->data<<"\n";
-	
-	log(DEBUG, "writeToFile() "+ss.str());
 	
 	if(oFile.is_open())
 	{
@@ -768,10 +768,8 @@ std::vector<writeRequest>::iterator findWriteRequest(string fileName)
 
 	for(it = writeQueue.begin(); it != writeQueue.end(); ++it)
 	{
-		cout<<"findWriteRequest() file in queue "+it->fileName+" searching for "+fileName<<endl;
 		if(it->fileName == fileName)
 		{
-			cout<<"findWriteRequest() found it \n";
 			retIt = it;
 			break;
 		}
@@ -794,11 +792,11 @@ std::vector<serverPkt>::iterator findFile(string fileName, storageLocation store
 			break;
 		case STORE_HASH_MINUS_ONE:
 			startIt = storeHashMinusOne.begin();
-			endIt = storeHashMinusTwo.end();
+			endIt = storeHashMinusOne.end();
 			retIt = storeHashMinusOne.end();
 			break;
 		case STORE_HASH_MINUS_TWO:
-			startIt = storeHashMinusOne.begin();
+			startIt = storeHashMinusTwo.begin();
 			endIt = storeHashMinusTwo.end();
 			retIt = storeHashMinusTwo.end();
 			break;

@@ -4,20 +4,24 @@ int main(int argc, char** argv)
 {
 	struct clientPkt 	cPkt;
 	int			ret;
+	int 			replica;
 
 	if(0 > initializeSystem())
 		return -1;
 
-	getUserInput(&cPkt);
-		
-	ret = sendRequestToServer(&cPkt);	
-	
-	if(ret < 0)
+	while(1)
 	{
-		log(ERROR, "sendRequestToServer() FAILED \n");
-		return -1;
+		getUserInput(&cPkt, &replica);
+		
+		ret = sendRequestToServer(&cPkt, replica);	
+	
+		if(ret < 0)
+		{
+			log(ERROR, "sendRequestToServer() FAILED \n");
+			return -1;
+		}
+		close(ret);
 	}
-	close(ret);
 	return 0;
 }
 
@@ -44,9 +48,10 @@ int initializeSystem()
 	return ret;
 }
 
-void getUserInput(clientPkt* cPkt)
+void getUserInput(clientPkt* cPkt, int* rNum)
 {
 	string input;
+	int replicaNum;
 
 	cout<<"Enter r for read request and w for write request \n";
 	cout<<"Enter request type:";
@@ -69,13 +74,16 @@ void getUserInput(clientPkt* cPkt)
 	}
 	else
 	{
+		cout<<"Enter replica to be read from:";
+		cin>>replicaNum;
+		*rNum = replicaNum;
 		strncpy(cPkt->data, "\0", MAX_DATA_SIZE);
 	}
 	cout<<endl;
 	return;
 }
 
-int sendRequestToServer(struct clientPkt* cPkt)
+int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 {
 	int		 	sockDesc;
 	int		 	hash;
@@ -90,36 +98,55 @@ int sendRequestToServer(struct clientPkt* cPkt)
 	if(cPkt)
 	{
 		hash = hashFileName(cPkt->fileName);
-		serverToConn = hash;
 		sockDesc = createSocket(TCP);
 
 		if(sockDesc < 0)
 			return -1;
 
 	
-		if(-1 == connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+		if(cPkt->msgType == CLIENT_REQ_WRITE)
 		{
-			ss.str(std::string());
-			ss<<"sendRequestToServer() - Cannot connect to hash server with Id "<<serverToConn<<"\n";
-			log(ERROR, ss.str());
-			
-			serverToConn = (hash + 1) % 7;
-			if(-1 ==  connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+			serverToConn = hash;
+			if(-1 == connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
 			{
-				ss<<"sendRequestToServer() - Cannot connect to hash+1 server with Id "<<serverToConn<<"\n";
+				ss.str(std::string());
+				ss<<"sendRequestToServer() - Cannot connect to hash server with Id "<<serverToConn<<"\n";
 				log(ERROR, ss.str());
-				return -1;
-			}
-			ss.str(std::string());
-			ss<<"sendRequestToServer() - connected to hash+1 server with Id "<<serverToConn<<"\n";
-			log(DEBUG, ss.str());
+				
+				serverToConn = (hash + 1) % 7;
+				if(-1 ==  connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+				{
+					ss<<"sendRequestToServer() - Cannot connect to hash+1 server with Id "<<serverToConn<<"\n";
+					log(ERROR, ss.str());
+					return -1;
+				}
+				ss.str(std::string());
+				ss<<"sendRequestToServer() - connected to hash+1 server with Id "<<serverToConn<<"\n";
+				log(DEBUG, ss.str());
 
+			}
+			else
+			{
+				ss.str(std::string());
+				ss<<"sendRequestToServer() - connected to hash server with Id "<<serverToConn<<"\n";
+				log(DEBUG, ss.str());
+			}
 		}
-		else
+		else if(cPkt->msgType == CLIENT_REQ_READ)
 		{
-			ss.str(std::string());
-			ss<<"sendRequestToServer() - connected to hash server with Id "<<serverToConn<<"\n";
-			log(DEBUG, ss.str());
+			serverToConn = (hash + rNum) % 7;
+			if(-1 == connect(sockDesc, (struct sockaddr*)&servAddress[serverToConn], sizeof(servAddress[serverToConn])))
+			{	
+				ss.str(std::string());
+				ss<<"sendRequestToServer() - Cannot connect to hash server with Id "<<serverToConn<<"\n";
+				log(ERROR, ss.str());
+			}
+			else
+			{
+				ss.str(std::string());
+				ss<<"sendRequestToServer() - Connected to hash server with Id "<<serverToConn<<"\n";
+				log(ERROR, ss.str());
+			}
 		}
 
 		sendMsg = packetToMessage(cPkt);
@@ -128,9 +155,9 @@ int sendRequestToServer(struct clientPkt* cPkt)
 		log(DEBUG, ss.str());
 		
 		timer = getCurTimeMilliSec();
-		ss.str(std::string());
-		ss<<"Send Timer is: "<<timer<<"\n";
-		log(DEBUG,ss.str());
+		//ss.str(std::string());
+		//ss<<"Send Timer is: "<<timer<<"\n";
+		//log(DEBUG,ss.str());
 
 		send(sockDesc, sendMsg.c_str(), strlen(sendMsg.c_str())+1, 0);
 

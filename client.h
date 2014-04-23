@@ -24,7 +24,7 @@ struct sockaddr_in servAddress[MAX_NODES];
  * FUNCTION Declaration
  **********************************/
 int initializeSystem();
-void getUserInput(struct clientPkt* cPkt);
-int sendRequestToServer(struct clientPkt* cPkt);
+void getUserInput(struct clientPkt* cPkt, int* rNum);
+int sendRequestToServer(struct clientPkt* cPkt, int rNum);
 
 #endif

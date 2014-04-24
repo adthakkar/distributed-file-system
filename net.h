@@ -23,7 +23,7 @@ static const int servPortNums[MAX_NODES] = {1126,
 					    1130,
 					    1131,
 					    1132};
-static const string servHostNames[MAX_NODES] = {"net25.utdallas.edu",
+static const string servHostNames[MAX_NODES] = {"net21.utdallas.edu",
 					 "net26.utdallas.edu",
 					 "net27.utdallas.edu",
 					 "net28.utdallas.edu",

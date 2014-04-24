@@ -11,8 +11,8 @@
 #include"util.h"
 
 #define	MAX_HOST_NAME_LENGTH	19
-#define HELLO_INTERVAL		3000000
-#define	SERVER_RESP_TIME_LIMIT	4000000
+#define HELLO_INTERVAL		3500
+#define	SERVER_RESP_TIME_LIMIT	4500
 #define LOCK_MUTEX(type)	pthread_mutex_lock(&type)
 #define UNLOCK_MUTEX(type)	pthread_mutex_unlock(&type)
 
@@ -77,6 +77,7 @@ pthread_t connThread;
 pthread_t heartbeatThread;
 pthread_t readRequestThread;
 pthread_t writeRequestThread;
+pthread_t partitionSimThread;
 
 pthread_mutex_t dataLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileLock = PTHREAD_MUTEX_INITIALIZER;
@@ -84,11 +85,15 @@ pthread_mutex_t fileLock = PTHREAD_MUTEX_INITIALIZER;
 int servSockDesc[MAX_NODES];
 int myId;
 long int liveNodesTimer[MAX_NODES];
+int numMsgSent, numMsgReceived;
+
 
 string debugFileName, heartbeatLog;
 string logHash, logHashMinusOne, logHashMinusTwo;
+string partitionSimFile;
 
 bool activeConnections[MAX_NODES];
+bool allowedConnections[MAX_NODES];
 bool startup, readyForRecovery, needRecovery;
 
 struct sockaddr_in servAddress[MAX_NODES];
@@ -109,6 +114,7 @@ void* processConnection(void* ptr);
 void* issueHeartbeat(void* ptr);
 void* processReadRequest(void* ptr);
 void* processWriteRequest(void* ptr);
+void* partitionSimulator(void* ptr);
 string packetToMessage(struct serverPkt* servPkt);
 string packetToMessage(struct helloPkt* hPkt);
 struct serverPkt servMsgToPacket(string sMsg);

@@ -23,6 +23,9 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
+	pthread_create(&partitionSimThread, 0, partitionSimulator, NULL);
+	pthread_detach(partitionSimThread);
+	
 	pthread_create(&heartbeatThread, 0, issueHeartbeat, NULL);
 	pthread_detach(heartbeatThread);
 
@@ -61,6 +64,9 @@ int initializeSystem()
 	startup = true;
 	readyForRecovery = true;
 	needRecovery = false;
+	
+	numMsgSent = 0;
+	numMsgReceived = 0;
 
 	gethostname(host, sizeof(host));
 
@@ -68,7 +74,7 @@ int initializeSystem()
 	{
 		if(servHostNames[i] == host)
 			myId = i;
-
+		
 		//servSockDesc[i] = createSocket(TCP);
 
 		//ss.str(std::string());
@@ -95,11 +101,14 @@ int initializeSystem()
 	ss.str(std::string());
 	ss<<"logHashMinusTwo_"<<myId;
 	logHashMinusTwo = ss.str(); 
-	
+
+	partitionSimFile = "partitionSimulator";
+
 	for(int i=0; i<MAX_NODES; i++)
 	{
 		if(i != myId)
 		{
+			allowedConnections[i] = true;
 			if(0 > getNodeAddr(servHostNames[i].c_str(), servPortNums[i], &servAddress[i]))
 			{
 				log(ERROR, "getNodeAddr() FAILED \n");
@@ -147,7 +156,7 @@ void* processConnection(void* ptr)
 		ss.str(std::string());
 		buffer = new char[MAX_BUFFER_SIZE];
 		noBytesRead = recv(conn->sockDesc, buffer, MAX_BUFFER_SIZE, 0);
-//cout<<"received something \n";
+		
 		if(noBytesRead == 0)
 		{
 			ss.str(std::string());
@@ -186,7 +195,7 @@ void* processConnection(void* ptr)
 							//ss<<"liveNodesTimer, serverId = "<<hPkt.serverId<<" is "<<liveNodesTimer[hPkt.serverId]<<"\n";
 							//log(DEBUG, ss.str());
 						}
-						else
+						else if(allowedConnections[hPkt.serverId])
 						{
 							servSockDesc[hPkt.serverId] = createSocket(TCP);
 							if(-1 < connect(servSockDesc[hPkt.serverId], (struct sockaddr*)&servAddress[hPkt.serverId], sizeof(servAddress[hPkt.serverId])))
@@ -295,6 +304,9 @@ void* processConnection(void* ptr)
 							logToFile(DEBUG, ss.str(), debugFileName);
 							
 							sendMessage(servSockDesc[id], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
+							
+							numMsgSent++;
+							numMsgReceived++;
 						}
 						UNLOCK_MUTEX(dataLock);
 						break;
@@ -305,13 +317,15 @@ void* processConnection(void* ptr)
 						{
 							wqIt->numAck += 1;
 						}
+						numMsgReceived++;
 						UNLOCK_MUTEX(dataLock);
 						break;
 					case SERVER_REQ_COMMIT:
 						LOCK_MUTEX(dataLock);
 						if(validateHash(sPkt.hashNum))
 						{
-						cout<<"SERVER_REQ_COMMIT - validated hash \n";
+							numMsgReceived++;
+							
 							writeToFile(findStoreType(sPkt.hashNum), &sPkt);
 							wqIt = findWriteRequest(sPkt.fileName);
 						
@@ -349,7 +363,7 @@ void* issueHeartbeat(void* ptr)
 		LOCK_MUTEX(dataLock);
 		for(int i=0; i<MAX_NODES; i++)
 		{
-			if(i != myId && !activeConnections[i])
+			if(i != myId && !activeConnections[i] && allowedConnections[i])
 			{
 				servSockDesc[i] = createSocket(TCP);
 				if(-1 < connect(servSockDesc[i], (struct sockaddr*)&servAddress[i], sizeof(servAddress[i])))
@@ -603,7 +617,6 @@ void* processWriteRequest(void* ptr)
 
 				if(errToClient)
 				{	
-					cout<<"errToClient - sockDesc is "<<it->conn->sockDesc<<"\n";
 					searchAndLock(it->fileName, false);
 					cPkt.msgType = CLIENT_SERV_RESP_FAILURE;
 					cPkt.fileName = it->fileName;
@@ -614,6 +627,82 @@ void* processWriteRequest(void* ptr)
 		}
 
 		UNLOCK_MUTEX(dataLock);
+	}
+}
+
+void* partitionSimulator(void* ptr)
+{
+	ifstream			iStream;
+	int				globalCount = 0;
+	int				localCount;
+	string				line;
+	int				mId, nodeId, action;
+	std::istringstream		iss;
+	std::stringstream		ss;
+
+	while(1)
+	{
+		if(!iStream.is_open())
+		{
+			iStream.open(partitionSimFile.c_str(), ios::in);
+		}
+
+		if(iStream.good())
+		{
+			localCount = 0;
+			while(std::getline(iStream, line))
+			{
+				localCount++;
+				if(localCount <= globalCount)
+				{
+					continue;
+				}
+				else
+				{
+					iss.str(line);
+					globalCount++;
+
+					if(iss >> mId >> nodeId >> action)
+					{
+						if(mId != myId)
+						{
+							continue;
+						}
+						else
+						{
+							LOCK_MUTEX(dataLock);
+							if((action == 0) && (activeConnections[nodeId]))
+							{
+								ss.str(std::string());
+								ss<<"partitionSimulator() - Closing conection to node "<<nodeId<<" sockDesc = "<<servSockDesc[nodeId]<<"\n";
+								log(DEBUG, ss.str());
+								
+								//close conection
+								close(servSockDesc[nodeId]);
+								servSockDesc[nodeId] = -1;
+								activeConnections[nodeId] = false;
+								allowedConnections[nodeId] = false;
+							}
+							else if((action == 1) && (!activeConnections[nodeId]))
+							{
+								servSockDesc[nodeId] = createSocket(TCP);
+								if(-1 < connect(servSockDesc[nodeId], (struct sockaddr*)&servAddress[nodeId], sizeof(servAddress[nodeId])))
+								{	
+									ss.str(std::string());
+									ss<<"partitionSimulator() - connection successful to node "<<nodeId<<" sockDesc "<<servSockDesc[nodeId]<<"\n";
+									log(DEBUG, ss.str());
+									activeConnections[nodeId] = true;
+									liveNodesTimer[nodeId] = getCurTimeMilliSec();
+								}
+								
+							}
+							UNLOCK_MUTEX(dataLock);
+						}
+					}
+				}
+			}
+			iStream.close();
+		}
 	}
 }
 
@@ -637,12 +726,14 @@ bool sendToReplica(int leader, int hash, serverPkt* sPkt)
 		replica2 = (myId + 2) % MAX_NODES;
 		if((hash == leader) &&  ((activeConnections[replica1])||(activeConnections[replica2])))
 		{
+			numMsgSent += 2;
 			sendMessage(servSockDesc[replica1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 			sendMessage(servSockDesc[replica2], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 			ret = true;
 		}
 		else if((hash+1 == leader) && (activeConnections[replica1]))
 		{
+			numMsgSent +=1;
 			sendMessage(servSockDesc[replica1], sendMsg.c_str(), strlen(sendMsg.c_str())+1);
 			ret = true;
 		}
@@ -686,8 +777,9 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 		strncpy(servIt->data,sPkt->data,MAX_DATA_SIZE);
 		servIt->lock = false;
 		
-		ss<<myId<<"\t"<<servIt->fileName<<"\t"<<servIt->version<<"\t"<<servIt->data<<"\n";
+		ss<<myId<<"\t"<<servIt->fileName<<"\t"<<servIt->version<<"\t"<<servIt->data<<"\t"<<numMsgSent<<"\t"<<numMsgReceived<<"\n";
 		log(DEBUG, "writeToFile() "+ss.str());
+		logToFile(DEBUG, "writeToFile() "+ss.str(), debugFileName);
 	}
 	else
 	{
@@ -696,8 +788,9 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 		pkt->version = 1;
 		pkt->lock = false;
 		
-		ss<<myId<<"\t"<<pkt->fileName<<"\t"<<pkt->version<<"\t"<<pkt->data<<"\n";
+		ss<<myId<<"\t"<<pkt->fileName<<"\t"<<pkt->version<<"\t"<<pkt->data<<"\t"<<numMsgSent<<"\t"<<numMsgReceived<<"\n";
 		log(DEBUG, "writeToFile() "+ss.str());
+		logToFile(DEBUG, "writeToFile() "+ss.str(), debugFileName);
 	}
 
 	switch(storeType)
@@ -720,7 +813,7 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 		default:
 			break;
 	}
-	
+
 	directory.insert(std::pair<string,storageLocation>(sPkt->fileName, storeType));
 	
 	if(oFile.is_open())
@@ -728,6 +821,8 @@ void writeToFile(storageLocation storeType, struct serverPkt* sPkt)
 		oFile<<ss.str();
 		oFile.close();
 	}
+	numMsgSent = 0;
+	numMsgReceived = 0;
 
 }
 
@@ -753,9 +848,9 @@ storageLocation findStoreType(int hNum)
 {
 	if(hNum == myId)
 		return STORE_HASH;
-	else if(hNum + 1 == myId)
+	else if(((hNum + 1)%7) == myId)
 		return STORE_HASH_MINUS_ONE;
-	else if(hNum + 2 == myId)
+	else if(((hNum + 2)%7) == myId)
 		return STORE_HASH_MINUS_TWO;
 	
 	return STORE_NONE;

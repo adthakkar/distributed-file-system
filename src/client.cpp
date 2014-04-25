@@ -90,7 +90,8 @@ int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 	int 			serverToConn;
 	std::stringstream	ss;
 	string			sendMsg;
-	long int		timer;
+	long int		startTimer;
+	long int		endTimer;
 	char*			buffer;
 	int			noBytesRead;
 	struct clientPkt	clientRet;
@@ -140,6 +141,7 @@ int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 				ss.str(std::string());
 				ss<<"sendRequestToServer() - Cannot connect to hash server with Id "<<serverToConn<<"\n";
 				log(ERROR, ss.str());
+				return -1;
 			}
 			else
 			{
@@ -154,7 +156,7 @@ int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 		ss<<"sendRequestToServer() sending message - "<<sendMsg<<" msgLen = "<<strlen(sendMsg.c_str())+1<<"\n";
 		log(DEBUG, ss.str());
 		
-		timer = getCurTimeMilliSec();
+		startTimer = getCurTimeMilliSec();
 		//ss.str(std::string());
 		//ss<<"Send Timer is: "<<timer<<"\n";
 		//log(DEBUG,ss.str());
@@ -165,7 +167,7 @@ int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 		{
 			log(DEBUG, "in while \n");
 			ss.str(std::string());
-			if((getCurTimeMilliSec() - timer) > CLIENT_RESP_TIME_LIMIT)
+			if((getCurTimeMilliSec() - startTimer) > CLIENT_RESP_TIME_LIMIT)
 			{
 				ss<<"sendRequestToServer() - Waiting for server response, TIMEOUT occured \n";
 				log(ERROR, ss.str());
@@ -189,8 +191,10 @@ int sendRequestToServer(struct clientPkt* cPkt, int rNum)
 			*/
 			if(noBytesRead>0)
 			{
+				endTimer = getCurTimeMilliSec();
 				buffer[noBytesRead] = '\0';
-				ss<<"sendRequestToServer() response received from server - "<<buffer<<"\n";	
+				ss<<"sendRequestToServer() response received from server - "<<buffer
+				<<" time ellapsed (ms) = "<<endTimer-startTimer<<"\n";	
 				log(DEBUG, ss.str());
 
 				clientRet = clientMsgToPacket(buffer);
